@@ -2,7 +2,7 @@ name: Login to Majsoul
 
 on:
   schedule:
-    - cron: '5 21 * * *'  # 21:05 UTC time (6:05 a.m. Korean time)
+    - cron: '5 21 * * *'  # 21:05 UTC time (6:00 a.m. Korean time)
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,12 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v2
+
+    - name: Random delay
+      run: |
+        delay=$(( RANDOM % 5400 ))
+        echo "Sleeping for $delay seconds..."
+        sleep $delay
 
     - name: Set up Python
       uses: actions/setup-python@v2
