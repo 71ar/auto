@@ -25,7 +25,7 @@
 1. 이 프로젝트를 GitHub에서 포크합니다.
 2. 포크한 저장소에서 `Settings > Secrets and variables > Actions`로 이동합니다.
 3. `New repository secret` 버튼을 눌러 `MS_SERVER` 시크릿을 추가합니다.
-4. `MS_SERVER` 값은 사용할 서버에 따라 `jp`, `en`, `kr`, `cn` 중 하나를 입력합니다. 입력하지 않으면 기본값은 `jp`입니다.
+4. `MS_SERVER` 값은 사용할 서버에 따라 `jp`, `en`, `kr`, `cn` 중 하나를 입력합니다. 입력하지 않으면 이 포크의 기본값인 `en`을 사용합니다.
 5. `jp`, `en`, `kr` 서버를 사용할 경우 `New repository secret` 버튼을 다시 눌러 `UID`와 `TOKEN` 시크릿을 추가합니다. 값에는 사전에 메모해둔 `UID`와 `TOKEN`을 입력합니다.
 6. `cn` 서버를 사용할 경우 `New repository secret` 버튼을 다시 눌러 `EMAIL`과 `PASSWORD` 시크릿을 추가합니다. 값에는 계정 이메일과 비밀번호 원문을 입력합니다.
 7. `Settings > Actions > General`로 이동해 `Workflow permissions`를 `Read and write permissions`로 변경합니다.

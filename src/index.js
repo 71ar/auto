@@ -11,7 +11,7 @@ const {
   parseProductVersion
 } = require('./client-metadata');
 
-const DEFAULT_SERVER = 'jp';
+const DEFAULT_SERVER = 'en';
 const BUY_GREEN_GIFT = false;
 const GREEN_GIFT_PRICE_GOLD = 15000;
 const GREEN_GIFT_MAX_COUNT_PER_GOODS = 4;
@@ -50,8 +50,8 @@ const SERVER_CONFIGS = {
     origin: 'https://mahjongsoul.game.yo-star.com',
     routeLang: 'en',
     tag: 'en',
-    loginMode: 'oauth_code',
-    oauthType: 22,
+    loginMode: 'passport',
+    oauthType: 7,
     currencyPlatforms: [1, 4, 5, 9, 12]
   },
   kr: {
@@ -144,7 +144,7 @@ function getServerConfig(serverKey) {
   };
 }
 
-async function requestJson(url, { body, headers, ...options } = {}) {
+async function requestJson(url, { body, headers, fetchImpl = fetch, ...options } = {}) {
   const init = { ...options, headers };
   if (body !== undefined) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
@@ -157,11 +157,42 @@ async function requestJson(url, { body, headers, ...options } = {}) {
     }
   }
 
-  const response = await fetch(url, init);
+  const response = await fetchImpl(url, init);
   if (!response.ok) {
     fail(`Request failed ${response.status} ${response.statusText} for ${url}`);
   }
   return response.json();
+}
+
+async function exchangePassportToken(passportBase, { uid, token }, fetchImpl = fetch) {
+  const normalizedBase = normalizeBase(passportBase);
+  const passportUrl = new URL(normalizedBase);
+  if (
+    passportUrl.protocol !== 'https:' ||
+    passportUrl.username ||
+    passportUrl.password ||
+    passportUrl.port ||
+    passportUrl.hostname.toLowerCase() !== 'passport.mahjongsoul.com'
+  ) {
+    fail('Passport URL is not an allowed official endpoint.');
+  }
+  const endpoint = buildUrl(normalizedBase, 'user/login/');
+  const body = new URLSearchParams({
+    uid,
+    token,
+    deviceId: `web|${uid}`
+  });
+  const response = await requestJson(endpoint, {
+    method: 'POST',
+    redirect: 'error',
+    body: body.toString(),
+    fetchImpl,
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8'
+    }
+  });
+  return must(response?.accessToken, 'Passport login failed: accessToken not found.');
 }
 
 async function requestText(url, options = {}) {
@@ -227,7 +258,10 @@ async function loadServerContext(server) {
   const productVersion = parseProductVersion(indexHtml);
   const clientMetadata = buildClientMetadata({
     productVersion,
-    resourceVersion: process.env.MS_RESOURCE_VERSION || process.env.RESOURCE_VERSION
+    resourceVersion:
+      process.env.MS_RESOURCE_VERSION ||
+      process.env.RESOURCE_VERSION ||
+      version
   });
 
   console.log(`version.json -> version=${version} force_version=${versionInfo.force_version} code=${versionInfo.code}`);
@@ -247,6 +281,10 @@ async function loadServerContext(server) {
     config?.ip?.find(entry => Array.isArray(entry?.gateways) && entry.gateways.length)?.gateways?.[0]?.url,
     'Gateway URL missing from config'
   ).replace(/\/+$/, '');
+  const passportBase =
+    server.loginMode === 'passport'
+      ? must(config?.yo_service_url?.[0], 'Passport URL missing from config')
+      : undefined;
 
   const [routes, liqiJson] = await Promise.all([
     requestJson(buildRoutesUrl(gatewayUrl, clientMetadata.routeVersion, routeLang)),
@@ -269,6 +307,7 @@ async function loadServerContext(server) {
     base,
     routes: routesToTry,
     version,
+    passportBase,
     clientMetadata,
     proto: loadProtoTypes(liqiJson)
   };
@@ -382,67 +421,66 @@ async function createSessionForRoute(context, route, credentials) {
   const device = buildDevice(server);
   console.log(`trying gateway route ${route.id}: ${route.endpoint}`);
   const channel = await openChannel(route.endpoint, server.origin, proto.Wrapper);
-  const call = async (name, requestType, payload, responseType) => {
-    const wrapper = await channel.send(name, encode(requestType, payload));
-    return responseType ? responseType.decode(wrapper.data) : wrapper;
-  };
-  const common = (name, responseType) => call(name, proto.ReqCommon, {}, responseType);
+  try {
+    const call = async (name, requestType, payload, responseType) => {
+      const wrapper = await channel.send(name, encode(requestType, payload));
+      return responseType ? responseType.decode(wrapper.data) : wrapper;
+    };
+    const common = (name, responseType) => call(name, proto.ReqCommon, {}, responseType);
 
-  await call(
-    '.lq.Route.requestConnection',
-    proto.ReqRequestConnection,
-    {
-      type: 1,
-      route_id: route.id,
-      timestamp: Date.now(),
-      platform: 'Web'
-    },
-    proto.ResRequestConnection
-  );
-  await call(
-    '.lq.Route.heartbeat',
-    proto.ReqHeartbeat,
-    {
-      delay: 0,
-      no_operation_counter: 0,
-      platform: 11,
-      network_quality: 0
-    },
-    proto.ResHeartbeat
-  );
-
-  if (server.loginMode === 'account_password') {
-    const loginResponse = await call(
-      '.lq.Lobby.login',
-      proto.ReqLogin,
-      buildPasswordLoginPayload({
-        account: email,
-        password: hashCnPassword(password),
-        device,
-        randomKey: randomUUID(),
-        clientVersion: clientMetadata.clientVersion,
-        clientVersionString: clientMetadata.clientVersionString,
-        currencyPlatforms: server.currencyPlatforms,
-        loginType: server.loginType,
-        tag: server.tag
-      }),
-      proto.ResOauth2Login
+    await call(
+      '.lq.Route.requestConnection',
+      proto.ReqRequestConnection,
+      {
+        type: 1,
+        route_id: route.id,
+        timestamp: Date.now(),
+        platform: 'Web'
+      },
+      proto.ResRequestConnection
     );
-    if (!loginResponse.account) {
-      fail('login failed: account not found.');
+    await call(
+      '.lq.Route.heartbeat',
+      proto.ReqHeartbeat,
+      {
+        delay: 0,
+        no_operation_counter: 0,
+        platform: 11,
+        network_quality: 0
+      },
+      proto.ResHeartbeat
+    );
+
+    if (server.loginMode === 'account_password') {
+      const loginResponse = await call(
+        '.lq.Lobby.login',
+        proto.ReqLogin,
+        buildPasswordLoginPayload({
+          account: email,
+          password: hashCnPassword(password),
+          device,
+          randomKey: randomUUID(),
+          clientVersion: clientMetadata.clientVersion,
+          clientVersionString: clientMetadata.clientVersionString,
+          currencyPlatforms: server.currencyPlatforms,
+          loginType: server.loginType,
+          tag: server.tag
+        }),
+        proto.ResOauth2Login
+      );
+      if (!loginResponse.account) {
+        fail('login failed: account not found.');
+      }
+
+      return {
+        proto,
+        common,
+        call,
+        close: () => channel.close(),
+        loginGold: Number(loginResponse.account.gold ?? 0)
+      };
     }
 
-    return {
-      proto,
-      common,
-      call,
-      close: () => channel.close(),
-      loginGold: Number(loginResponse.account.gold ?? 0)
-    };
-  }
-
-  let accessToken = token;
-  if (server.loginMode === 'oauth_code') {
     const authResponse = await call(
       '.lq.Lobby.oauth2Auth',
       proto.ReqOauth2Auth,
@@ -454,56 +492,71 @@ async function createSessionForRoute(context, route, credentials) {
       }),
       proto.ResOauth2Auth
     );
-    accessToken = must(authResponse?.access_token, `oauth2Auth failed: ${JSON.stringify(authResponse)}`);
-  }
+    const accessToken = must(
+      authResponse?.access_token,
+      `oauth2Auth failed: ${JSON.stringify(authResponse)}`
+    );
 
-  const checkResponse = await call(
-    '.lq.Lobby.oauth2Check',
-    proto.ReqOauth2Check,
-    {
-      type: server.oauthType,
-      access_token: accessToken
-    },
-    proto.ResOauth2Check
-  );
-  if (!checkResponse?.has_account) {
-    fail(`oauth2Check failed: ${JSON.stringify(checkResponse)}`);
-  }
+    if (server.loginMode !== 'passport') {
+      const checkResponse = await call(
+        '.lq.Lobby.oauth2Check',
+        proto.ReqOauth2Check,
+        {
+          type: server.oauthType,
+          access_token: accessToken
+        },
+        proto.ResOauth2Check
+      );
+      if (!checkResponse?.has_account) {
+        fail(`oauth2Check failed: ${JSON.stringify(checkResponse)}`);
+      }
+    }
 
-  const loginResponse = await call(
-    '.lq.Lobby.oauth2Login',
-    proto.ReqOauth2Login,
-    buildOauth2LoginPayload({
-      oauthType: server.oauthType,
-      accessToken,
-      device,
-      randomKey: randomUUID(),
-      clientVersion: clientMetadata.clientVersion,
-      clientVersionString: clientMetadata.clientVersionString,
-      currencyPlatforms: server.currencyPlatforms,
-      tag: server.tag
-    }),
-    proto.ResOauth2Login
-  );
-  if (!loginResponse.account) {
-    fail('oauth2Login failed: account not found.');
-  }
+    const loginResponse = await call(
+      '.lq.Lobby.oauth2Login',
+      proto.ReqOauth2Login,
+      buildOauth2LoginPayload({
+        oauthType: server.oauthType,
+        accessToken,
+        device,
+        randomKey: randomUUID(),
+        clientVersion: clientMetadata.clientVersion,
+        clientVersionString: clientMetadata.clientVersionString,
+        currencyPlatforms: server.currencyPlatforms,
+        tag: server.tag
+      }),
+      proto.ResOauth2Login
+    );
+    if (!loginResponse.account) {
+      fail('oauth2Login failed: account not found.');
+    }
 
-  return {
-    proto,
-    common,
-    call,
-    close: () => channel.close(),
-    loginGold: Number(loginResponse.account.gold ?? 0)
-  };
+    return {
+      proto,
+      common,
+      call,
+      close: () => channel.close(),
+      loginGold: Number(loginResponse.account.gold ?? 0)
+    };
+  } catch (error) {
+    await channel.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 async function createSession(context, credentials) {
   const errors = [];
+  const routeCredentials =
+    context.server.loginMode === 'passport'
+      ? {
+          ...credentials,
+          token: await exchangePassportToken(context.passportBase, credentials)
+        }
+      : credentials;
 
   for (const route of context.routes) {
     try {
-      return await createSessionForRoute(context, route, credentials);
+      return await createSessionForRoute(context, route, routeCredentials);
     } catch (error) {
       errors.push({ route: route.id, message: error?.message || String(error) });
       console.warn(`gateway route ${route.id} failed: ${error?.message || error}`);
@@ -633,6 +686,7 @@ if (require.main === module) {
 
 module.exports = {
   createSession,
+  exchangePassportToken,
   getServerConfig,
   loadRuntimeConfig,
   loadServerContext,

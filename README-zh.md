@@ -25,7 +25,7 @@
 1. 在 GitHub 上 Fork 本仓库。
 2. 在 Fork 后的仓库中打开 `Settings > Secrets and variables > Actions`。
 3. 点击 `New repository secret`，添加 `MS_SERVER`。
-4. `MS_SERVER` 的值填写 `jp`、`en`、`kr`、`cn` 之一。不填写时默认使用 `jp`。
+4. `MS_SERVER` 的值填写 `jp`、`en`、`kr`、`cn` 之一。不填写时，此分支默认使用 `en`。
 5. 如果使用 `jp`、`en` 或 `kr` 服务器，请再次点击 `New repository secret`，添加 `UID` 和 `TOKEN`。
 6. 如果使用 `cn` 服务器，请再次点击 `New repository secret`，添加 `EMAIL` 和 `PASSWORD`，值填写账号邮箱和明文密码。
 7. 前往 `Settings > Actions > General`，将 `Workflow permissions` 调整为 `Read and write permissions`。

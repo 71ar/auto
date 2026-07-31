@@ -25,7 +25,7 @@
 1. このリポジトリを GitHub でフォークします。
 2. フォーク先で `Settings > Secrets and variables > Actions` を開きます。
 3. `New repository secret` をクリックして `MS_SERVER` を追加します。
-4. `MS_SERVER` には `jp`、`en`、`kr`、`cn` のいずれかを設定します。未設定の場合は `jp` が使われます。
+4. `MS_SERVER` には `jp`、`en`、`kr`、`cn` のいずれかを設定します。未設定の場合、このフォークでは `en` が使われます。
 5. `jp`、`en`、`kr` サーバーを使う場合は、`New repository secret` を再度クリックして `UID` と `TOKEN` を追加します。
 6. `cn` サーバーを使う場合は、`New repository secret` を再度クリックして `EMAIL` と `PASSWORD` を追加します。値にはアカウントのメールアドレスと平文パスワードを入力します。
 7. `Settings > Actions > General` に移動し、`Workflow permissions` を `Read and write permissions` に変更します。
