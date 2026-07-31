@@ -35,7 +35,7 @@ jobs:
         EMAIL: ${{ secrets.EMAIL }}
         PASSWORD: ${{ secrets.PASSWORD }}
         MS_SERVER: en
-        MS_RESOURCE_VERSION: '0.16.213.w'
+        MS_RESOURCE_VERSION: '0.16.213'
 
     - name: Update Keep-Alive File
       run: |
