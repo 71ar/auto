@@ -256,17 +256,27 @@ async function loadServerContext(server) {
   const version = versionInfo.version;
   const codeDir = must(String(versionInfo.code || '').split('/')[0], 'Missing code directory for config fetch');
   const productVersion = parseProductVersion(indexHtml);
+  const resourceVersionOverride =
+    process.env.MS_RESOURCE_VERSION ||
+    process.env.RESOURCE_VERSION;
+  let resourceVersion = resourceVersionOverride || version;
+  let resourceVersionSource = resourceVersionOverride ? 'override' : 'version.json';
+  if (server.key === 'en') {
+    const { resolveEnClientVersion } = await import('./en-client-version.mts');
+    const resolution = await resolveEnClientVersion({
+      override: resourceVersionOverride
+    });
+    resourceVersion = resolution.version;
+    resourceVersionSource = resolution.source;
+  }
   const clientMetadata = buildClientMetadata({
     productVersion,
-    resourceVersion:
-      process.env.MS_RESOURCE_VERSION ||
-      process.env.RESOURCE_VERSION ||
-      version
+    resourceVersion
   });
 
   console.log(`version.json -> version=${version} force_version=${versionInfo.force_version} code=${versionInfo.code}`);
   console.log(
-    `web client -> productVersion=${productVersion} resource=${clientMetadata.clientVersion.resource} client_version_string=${clientMetadata.clientVersionString}`
+    `web client -> productVersion=${productVersion} resource=${clientMetadata.clientVersion.resource} resourceSource=${resourceVersionSource} client_version_string=${clientMetadata.clientVersionString}`
   );
 
   const [config, resManifest] = await Promise.all([

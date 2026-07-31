@@ -84,3 +84,12 @@ test('exchangePassportToken never sends secrets to a non-official host', async (
   );
   assert.equal(called, false);
 });
+
+test('EN resource version resolver selects the latest WebGL version', async () => {
+  const { selectCurrentResourceVersion } = await import('../src/en-client-version.mts');
+
+  assert.equal(
+    selectCurrentResourceVersion(['0.16.211.w', '0.16.213', '0.16.212.w']),
+    '0.16.213.w'
+  );
+});
