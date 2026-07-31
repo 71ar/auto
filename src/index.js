@@ -1,6 +1,6 @@
 require('dotenv').config();
 
-const { createHash, createHmac, randomUUID } = require('node:crypto');
+const { createHmac, randomUUID } = require('node:crypto');
 const protobuf = require('protobufjs/light');
 const WebSocket = require('ws');
 const {
@@ -50,7 +50,7 @@ const SERVER_CONFIGS = {
     origin: 'https://mahjongsoul.game.yo-star.com',
     routeLang: 'en',
     tag: 'en',
-    loginMode: 'yostar',
+    loginMode: 'oauth_code',
     oauthType: 22,
     currencyPlatforms: [1, 4, 5, 9, 12]
   },
@@ -144,7 +144,7 @@ function getServerConfig(serverKey) {
   };
 }
 
-async function requestJson(url, { body, headers, fetchImpl = fetch, ...options } = {}) {
+async function requestJson(url, { body, headers, ...options } = {}) {
   const init = { ...options, headers };
   if (body !== undefined) {
     init.body = typeof body === 'string' ? body : JSON.stringify(body);
@@ -157,69 +157,11 @@ async function requestJson(url, { body, headers, fetchImpl = fetch, ...options }
     }
   }
 
-  const response = await fetchImpl(url, init);
+  const response = await fetch(url, init);
   if (!response.ok) {
     fail(`Request failed ${response.status} ${response.statusText} for ${url}`);
   }
   return response.json();
-}
-
-async function exchangeYostarCredentials(
-  { uid, token },
-  fetchImpl = fetch,
-  nowSeconds = () => Math.floor(Date.now() / 1000)
-) {
-  const body = {};
-  const head = {
-    Region: 'US',
-    PID: 'US-MAJONGSOUL',
-    Channel: 'web',
-    Platform: 'pc',
-    Version: process.env.MS_YOSTAR_SDK_VERSION || '4.16.2',
-    Lang: 'en',
-    DeviceID: process.env.MS_DEVICE_ID || `web|${uid}`,
-    UID: uid,
-    Token: token,
-    Time: nowSeconds()
-  };
-  const sign = createHash('md5')
-    .update(
-      `${JSON.stringify(head)}${JSON.stringify(body)}347467131a466f6865d7f2662e38841fbe2adb23`
-    )
-    .digest('hex')
-    .toUpperCase();
-
-  const response = await requestJson(
-    'https://en-sdk-api.yostarplat.com/user/quick-login',
-    {
-      method: 'POST',
-      redirect: 'error',
-      body,
-      fetchImpl,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: JSON.stringify({ Head: head, Sign: sign }),
-        Origin: 'https://mahjongsoul.game.yo-star.com',
-        Referer: 'https://mahjongsoul.game.yo-star.com/',
-        'User-Agent': 'Mozilla/5.0'
-      }
-    }
-  );
-
-  if (Number(response?.Code) !== 200) {
-    fail(`YoStar quick login failed with code ${response?.Code ?? 'unknown'}.`);
-  }
-  const loginUid = response?.Data?.UserInfo?.ID;
-  const loginToken = response?.Data?.UserInfo?.Token;
-  if (!loginUid || !loginToken) {
-    fail('YoStar quick login returned an unexpected response.');
-  }
-
-  return {
-    uid: String(loginUid),
-    token: String(loginToken)
-  };
 }
 
 async function requestText(url, options = {}) {
@@ -500,7 +442,7 @@ async function createSessionForRoute(context, route, credentials) {
   }
 
   let accessToken = token;
-  if (server.loginMode === 'oauth_code' || server.loginMode === 'yostar') {
+  if (server.loginMode === 'oauth_code') {
     const authResponse = await call(
       '.lq.Lobby.oauth2Auth',
       proto.ReqOauth2Auth,
@@ -558,17 +500,10 @@ async function createSessionForRoute(context, route, credentials) {
 
 async function createSession(context, credentials) {
   const errors = [];
-  const routeCredentials =
-    context.server.loginMode === 'yostar'
-      ? {
-          ...credentials,
-          ...(await exchangeYostarCredentials(credentials))
-        }
-      : credentials;
 
   for (const route of context.routes) {
     try {
-      return await createSessionForRoute(context, route, routeCredentials);
+      return await createSessionForRoute(context, route, credentials);
     } catch (error) {
       errors.push({ route: route.id, message: error?.message || String(error) });
       console.warn(`gateway route ${route.id} failed: ${error?.message || error}`);
@@ -698,7 +633,6 @@ if (require.main === module) {
 
 module.exports = {
   createSession,
-  exchangeYostarCredentials,
   getServerConfig,
   loadRuntimeConfig,
   loadServerContext,
