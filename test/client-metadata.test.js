@@ -38,6 +38,13 @@ test('buildClientMetadata falls back to product version for WebGL resource versi
   assert.equal(metadata.clientVersionString, 'WebGL_2022-4.0.7');
 });
 
+test('buildClientMetadata refuses the package fallback when EN requires a resource version', () => {
+  assert.throws(
+    () => buildClientMetadata({ productVersion: '4.0.10', requireResourceVersion: true }),
+    /resourceVersion is required/
+  );
+});
+
 test('buildOauth2AuthPayload sends Yostar token as code with current client version string', () => {
   assert.deepEqual(
     buildOauth2AuthPayload({

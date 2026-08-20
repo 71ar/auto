@@ -10,6 +10,7 @@ const {
   buildPasswordLoginPayload,
   parseProductVersion
 } = require('./client-metadata');
+const { resolveEnResourceVersion } = require('./en-resource-version');
 
 const DEFAULT_SERVER = 'jp';
 const BUY_GREEN_GIFT = false;
@@ -225,14 +226,22 @@ async function loadServerContext(server) {
   const version = versionInfo.version;
   const codeDir = must(String(versionInfo.code || '').split('/')[0], 'Missing code directory for config fetch');
   const productVersion = parseProductVersion(indexHtml);
+  const configuredResourceVersion = process.env.MS_RESOURCE_VERSION || process.env.RESOURCE_VERSION;
+  const enResource = server.key === 'en'
+    ? await resolveEnResourceVersion({
+        msResourceVersion: process.env.MS_RESOURCE_VERSION,
+        resourceVersion: process.env.RESOURCE_VERSION
+      })
+    : null;
   const clientMetadata = buildClientMetadata({
     productVersion,
-    resourceVersion: process.env.MS_RESOURCE_VERSION || process.env.RESOURCE_VERSION
+    resourceVersion: enResource?.version || configuredResourceVersion,
+    requireResourceVersion: server.key === 'en'
   });
 
   console.log(`version.json -> version=${version} force_version=${versionInfo.force_version} code=${versionInfo.code}`);
   console.log(
-    `web client -> productVersion=${productVersion} resource=${clientMetadata.clientVersion.resource} client_version_string=${clientMetadata.clientVersionString}`
+    `web client -> productVersion=${productVersion} resource=${clientMetadata.clientVersion.resource} resource_source=${enResource?.source || 'configured-or-package'} client_version_string=${clientMetadata.clientVersionString}`
   );
 
   const [config, resManifest] = await Promise.all([
@@ -382,9 +391,18 @@ async function createSessionForRoute(context, route, credentials) {
   const device = buildDevice(server);
   console.log(`trying gateway route ${route.id}: ${route.endpoint}`);
   const channel = await openChannel(route.endpoint, server.origin, proto.Wrapper);
+  const closeAndFail = async message => {
+    await channel.close();
+    fail(message);
+  };
   const call = async (name, requestType, payload, responseType) => {
-    const wrapper = await channel.send(name, encode(requestType, payload));
-    return responseType ? responseType.decode(wrapper.data) : wrapper;
+    try {
+      const wrapper = await channel.send(name, encode(requestType, payload));
+      return responseType ? responseType.decode(wrapper.data) : wrapper;
+    } catch (error) {
+      await channel.close();
+      throw error;
+    }
   };
   const common = (name, responseType) => call(name, proto.ReqCommon, {}, responseType);
 
@@ -429,7 +447,7 @@ async function createSessionForRoute(context, route, credentials) {
       proto.ResOauth2Login
     );
     if (!loginResponse.account) {
-      fail('login failed: account not found.');
+      await closeAndFail('login failed: account not found.');
     }
 
     return {
@@ -454,7 +472,10 @@ async function createSessionForRoute(context, route, credentials) {
       }),
       proto.ResOauth2Auth
     );
-    accessToken = must(authResponse?.access_token, `oauth2Auth failed: ${JSON.stringify(authResponse)}`);
+    if (!authResponse?.access_token) {
+      await closeAndFail(`oauth2Auth failed: ${JSON.stringify(authResponse)}`);
+    }
+    accessToken = authResponse.access_token;
   }
 
   const checkResponse = await call(
@@ -467,7 +488,7 @@ async function createSessionForRoute(context, route, credentials) {
     proto.ResOauth2Check
   );
   if (!checkResponse?.has_account) {
-    fail(`oauth2Check failed: ${JSON.stringify(checkResponse)}`);
+    await closeAndFail(`oauth2Check failed: ${JSON.stringify(checkResponse)}`);
   }
 
   const loginResponse = await call(
@@ -486,7 +507,7 @@ async function createSessionForRoute(context, route, credentials) {
     proto.ResOauth2Login
   );
   if (!loginResponse.account) {
-    fail('oauth2Login failed: account not found.');
+    await closeAndFail('oauth2Login failed: account not found.');
   }
 
   return {

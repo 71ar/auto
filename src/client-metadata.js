@@ -6,9 +6,12 @@ function parseProductVersion(html) {
   return match[1];
 }
 
-function buildClientMetadata({ productVersion, resourceVersion }) {
+function buildClientMetadata({ productVersion, resourceVersion, requireResourceVersion = false }) {
   if (!productVersion) {
     throw new Error('productVersion is required');
+  }
+  if (requireResourceVersion && !resourceVersion) {
+    throw new Error('resourceVersion is required');
   }
   const resource = resourceVersion || productVersion;
 
